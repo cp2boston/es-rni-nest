@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using Nest;
 
 using rni_name = System.String; // For readability only, it has no underlying effect on results
@@ -21,19 +22,35 @@ namespace estest {
 
             var createResponse = client.CreateIndex(indexName);
 
+
             // Map custom type
             // Since the RNI plugin requires a custom type, rni_name, and the fluent NEST model doesn't appear to 
             // have a way to map a custom type, use the LowLevel feature of NEST to apply the correct mapping.
             // This only needs to be done once.
-            string body = @"{""name_type"": {""properties"": {""primary_name"": {""type"": ""rni_name""}}}}";
-            var mapResponse = client.LowLevel.IndicesPutMapping<Record>(indexName, "name_type", body);
+
+            // Building the JSON using Newtonsoft is the safest way to ensure that the resulting JSON is correctly formatted
+            JObject body = new JObject(
+                new JProperty("record",
+                    new JObject(
+                        new JProperty("properties",
+                            new JObject(
+                                new JProperty("FullName", new JObject( new JProperty("type", "rni_name")) ),
+                                new JProperty("LocalName", new JObject( new JProperty("type", "rni_name")) ),
+                                new JProperty("DateOfBirth", new JObject( new JProperty("type", "rni_date") ))
+                            )
+                        )
+                    )
+                )
+            );
+            // Use LowLevel to map the custom types
+            var mapResponse = client.LowLevel.IndicesPutMapping<Record>(indexName, "record", body.ToString());
 
             // Add the sample record
             Record record = new estest.Program.Record {
                 Id = "1",
-                primary_name = "Joe Schmoe",
-                aka = "Joe the Schmoe",
-                occupation = "Longshoreman"
+                FullName = "Joe Schmoe",
+                LocalName = "Joe the Schmoe",
+                DateOfBirth = new DateTime(1980, 11, 11)
             };
 
             var indexResponse = client.Index(record);
@@ -44,25 +61,38 @@ namespace estest {
             // The search is the other area in which a lowlevel query is needed.  Rather than use LowLevel exclusively,
             // I opted to use the Query.Raw feature to specify the custom function_score, name_score.
 
-            string customFunctionScoreQuery = @"{ ""function_score"": { ""name_score"": { ""field"": ""primary_name"", ""query_name"": ""Jo Shmoe""} } }";
-            var searchResponse = client.Search<Record>(s => s
-                .From(0)
-                .Size(100)
-                .Query(q => q
-                    .Match( m => m.Field( f => f.primary_name).Query("Joe Schmoe") )
-                        
-                )
-                .Rescore( rq => rq
-                    .WindowSize(200)
-                    .RescoreQuery( q => q
-                        .QueryWeight(0.0)
-                        .RescoreQueryWeight(1.0)
-                        .Query( qy => qy
-                            .Raw(customFunctionScoreQuery)  // Raw required for custom function_score query
+            //string customQuery = @"{ ""function_score"": { ""name_score"": { ""field"": ""FullName"", ""query_name"": ""Jo Shmoe""} } }";
+            // Again, to be safe, build the JSON using Newtonsoft
+            JObject customQuery = new JObject(
+                new JProperty("function_score",
+                    new JObject(
+                        new JProperty("name_score",
+                            new JObject(
+                                new JProperty("field", "FullName"),
+                                new JProperty("query_name", "Jo Schmoe")
+                            )
                         )
                     )
                 )
-                    
+            );
+            var searchResponse = client.Search<Record>(search => search
+                .From(0)
+                .Size(100)
+                .Query(query => query
+                    .Match(m => m.Field(f => f.FullName).Query("Joe Schmoe"))
+
+                )
+                .Rescore(rescore => rescore
+                    .WindowSize(200)
+                    .RescoreQuery(rescore_query => rescore_query
+                        .QueryWeight(0.0)
+                        .RescoreQueryWeight(1.0)
+                        .Query(query => query
+                            .Raw(customQuery.ToString())  // Raw required for custom function_score query
+                        )
+                    )
+                )
+
             );
 
             System.Diagnostics.Debug.WriteLine(searchResponse.ToString());
@@ -76,9 +106,9 @@ namespace estest {
         /// </summary>
         public class Record {
             public string Id { get; set; }
-            public rni_name primary_name { get; set; }
-            public rni_name aka { get; set; }
-            public string occupation { get; set; }
+            public rni_name FullName { get; set; }
+            public rni_name LocalName { get; set; }
+            public DateTime DateOfBirth { get; set; }
         }
         
     }
