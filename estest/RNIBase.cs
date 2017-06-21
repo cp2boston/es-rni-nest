@@ -30,7 +30,7 @@ namespace estest {
                         new JProperty("properties",
                             new JObject (
                             from property in publicProperties //.Where( t=> !t.Name.Contains("Id") )
-                                select new JProperty(property.Name, new JObject(new JProperty("type", rniType(property.PropertyType.Name))))
+                                select new JProperty(property.Name, new JObject(new JProperty("type", RniType(property.PropertyType.Name))))
                             )
                         )
                     )
@@ -44,7 +44,7 @@ namespace estest {
         /// </summary>
         /// <param name="propertyType">Standard type</param>
         /// <returns>RNI type</returns>
-        private string rniType(string propertyType) {
+        private string RniType(string propertyType) {
             Dictionary<string, string> rniTypes = new Dictionary<string, string>() {
                 { "String", "rni_name" },
                 { "DateTime", "rni_date" }
